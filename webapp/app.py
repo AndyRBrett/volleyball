@@ -30,6 +30,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PIPELINE = REPO_ROOT / "poc" / "pipeline.py"
@@ -42,6 +43,10 @@ try:
     from metrics import compute_metrics  # local metrics layer
 except Exception:  # noqa: BLE001 - metrics are optional; pipeline still works
     compute_metrics = None
+try:
+    from calibration import calibrate_players  # court calibration (optional)
+except Exception:  # noqa: BLE001
+    calibrate_players = None
 
 RF_MODEL = os.environ.get("RF_MODEL", "volleyball_detection/2")
 DEFAULT_STRIDE = int(os.environ.get("PIPELINE_STRIDE", "5"))
@@ -213,6 +218,35 @@ async def job_metrics(job_id: str):
     if not path.exists():
         raise HTTPException(404, "No metrics for this job.")
     return FileResponse(path, media_type="application/json")
+
+
+class CalibrateBody(BaseModel):
+    corners: list[list[float]]   # [near-left, near-right, far-right, far-left] in image px
+    court: str = "beach"
+    camera_moves: bool = False
+
+
+@app.post("/api/jobs/{job_id}/calibrate")
+async def calibrate(job_id: str, body: CalibrateBody):
+    if calibrate_players is None:
+        raise HTTPException(500, "Calibration module unavailable.")
+    if len(body.corners) != 4:
+        raise HTTPException(400, "Need exactly 4 corners.")
+    job_dir = JOBS_DIR / job_id
+    events_p = job_dir / "events.json"
+    if not events_p.exists():
+        raise HTTPException(404, "No events for this job.")
+
+    data = json.loads(events_p.read_text())
+    result = calibrate_players(data.get("events", []), body.corners, body.court,
+                               data.get("fps", 30.0), body.camera_moves)
+
+    # Merge the calibrated section into metrics.json so the result page sees it.
+    metrics_p = job_dir / "metrics.json"
+    metrics = json.loads(metrics_p.read_text()) if metrics_p.exists() else {}
+    metrics.update(result)
+    metrics_p.write_text(json.dumps(metrics, indent=2))
+    return result
 
 
 # Static frontend (mounted last so /api/* wins).

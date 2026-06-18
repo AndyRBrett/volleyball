@@ -95,6 +95,17 @@ button:disabled { opacity: 0.5; cursor: default; }
 #video { width: 100%; border-radius: 8px; display: block; }
 #overlay { position: absolute; inset: 0; pointer-events: none; }
 
+.calib { margin-top: 14px; }
+#calib-btn { background: #2a2f3a; color: var(--ink); border: 1px solid #3a4150; }
+#calib-panel { margin-top: 12px; padding: 14px; background: #1f232b; border: 1px solid #262a33; border-radius: 10px; }
+.calib-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
+.calib-controls label { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+
+#calibrated { margin-top: 20px; }
+#calibrated h3 { font-size: 1rem; margin: 0 0 12px; }
+#calibrated h4 { font-size: 0.9rem; margin: 0 0 8px; }
+#court-heatmap { width: 100%; max-width: 360px; border-radius: 8px; border: 1px solid #262a33; }
+
 .metrics { margin-top: 18px; }
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
 .metric {

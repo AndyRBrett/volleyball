@@ -27,6 +27,26 @@ private.
 - Once local, the whole pipeline runs offline; the webapp no longer needs
   `ROBOFLOW_API_KEY`.
 
+## Moving-camera court calibration (per-frame)
+
+**Status:** deferred. A single 4-corner calibration is accurate only while the
+camera is fixed for the clip. When the camera pans/zooms during a clip (common
+for handheld phone footage), the homography drifts and court-filtering + real
+units become approximate — the UI flags this when "camera moves" is ticked.
+
+**Real fix:** track the court across frames so the homography updates per frame —
+e.g. detect court lines/corners each frame, or track features / stabilize the
+video and propagate the initial homography. This is a meaningful CV effort;
+until then, fixed-camera footage gives accurate metrics and moving-camera footage
+is labelled approximate.
+
+## Real-world ball speed (3D)
+
+**Status:** deferred. The ground-plane homography is correct for player feet but
+not for an airborne ball (parallax), so ball speed stays in pixels. Real ball
+speed needs 3D reconstruction (multi-view, or a physics/arc model with known
+court geometry). Player metres/speed are unaffected.
+
 ## Housekeeping
 
 - **Regenerate the Roboflow API key** that was shared during setup (it was pasted

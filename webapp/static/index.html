@@ -45,6 +45,40 @@
         <canvas id="overlay"></canvas>
       </div>
 
+      <div class="calib">
+        <button id="calib-btn" type="button">📐 Calibrate court</button>
+        <div id="calib-panel" class="hidden">
+          <p id="calib-instr" class="msg"></p>
+          <div class="calib-controls">
+            <label>Court
+              <select id="court-type">
+                <option value="beach">Beach (16×8 m)</option>
+                <option value="indoor">Indoor (18×9 m)</option>
+              </select>
+            </label>
+            <label><input type="checkbox" id="camera-moves" /> Camera moves during clip</label>
+            <button id="calib-apply" type="button" disabled>Apply</button>
+            <button id="calib-reset" type="button">Reset corners</button>
+          </div>
+          <p class="hint">Pause on a clear frame, then click the 4 court corners in order. If the camera pans/zooms during the clip, tick "Camera moves" — results will be approximate.</p>
+        </div>
+      </div>
+
+      <div id="calibrated" class="hidden">
+        <h3>On-court (calibrated) <span id="calib-approx" class="badge error hidden">approximate</span></h3>
+        <div class="metric-grid" id="court-grid"></div>
+        <div class="metric-cols">
+          <div>
+            <h4>Player distance <span class="unit">(metres)</span></h4>
+            <ul id="court-players" class="player-list"></ul>
+          </div>
+          <div>
+            <h4>Top-down court heatmap</h4>
+            <canvas id="court-heatmap" width="360" height="180"></canvas>
+          </div>
+        </div>
+      </div>
+
       <div class="metrics" id="metrics">
         <div class="metric-grid" id="metric-grid"></div>
         <div class="metric-cols">

@@ -36,10 +36,17 @@ metrics layer, then the coaching call, then the UI.
 - [x] **Combined pipeline** (`poc/pipeline.py`) — local player tracking + Roboflow
       ball detection in one pass; player IDs stay stable, ball marker tracks
       cleanly. Emits an annotated video + per-frame events JSON.
-- [ ] Court calibration (homography from 4 corners) → real-world coordinates
-- [ ] Metrics layer (ball-gap interpolation, rally segmentation, speed, heatmaps)
-- [ ] Claude coaching call (`claude-opus-4-8`)
-- [ ] FastAPI backend + web UI
+- [x] **Metrics layer** (`poc/metrics.py`) — ball-path interpolation, rally
+      segmentation, ball speed, per-player distance, position heatmap (pixels).
+- [x] **Web UI shell** (`webapp/`) — upload → background processing → annotated
+      playback with ball-path overlay + metrics panels.
+- [x] **Court calibration** (`poc/calibration.py`) — click 4 corners → filter
+      players to the court (drops background people) + real-world units (metres).
+      Accurate for a fixed camera; **approximate and flagged** when the camera
+      moves during the clip (per-frame court tracking is a TODO).
+- [ ] Claude coaching call (`claude-opus-4-8`) — written readout from the metrics
+- [ ] Real-world ball speed (needs 3D; ball is airborne — ground homography only
+      handles player feet). See TODO.
 
 ## Quick start
 

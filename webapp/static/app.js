@@ -88,10 +88,20 @@ $("#upload-form").addEventListener("submit", async (e) => {
 let events = null;      // parsed events.json
 let metrics = null;     // parsed metrics.json
 let frameSize = [0, 0]; // native [w, h] the coords are in
+let currentJobId = null;
+let calibrating = false;
+let cornersImg = [];    // clicked court corners in native image px
 
 async function openResult(job) {
   $("#result-card").classList.remove("hidden");
   $("#result-name").textContent = job.filename || job.id;
+  currentJobId = job.id;
+  // Reset calibration UI for the newly opened job.
+  calibrating = false;
+  cornersImg = [];
+  canvas.style.pointerEvents = "none";
+  $("#calib-panel").classList.add("hidden");
+  $("#calibrated").classList.add("hidden");
   const ballNote = job.ball_enabled === false
     ? " (players only — no ball model)"
     : `, ball in ${job.ball_pct ?? 0}% of frames`;
@@ -149,6 +159,7 @@ function renderMetrics() {
     : '<li class="muted">No tracked players.</li>';
 
   drawHeatmap(metrics.players?.heatmap);
+  renderCalibrated();
 }
 
 function drawHeatmap(hm) {
@@ -283,6 +294,167 @@ video.addEventListener("timeupdate", drawOverlay);  // covers paused scrubbing
 video.addEventListener("seeked", drawOverlay);
 window.addEventListener("resize", sizeCanvas);
 $("#show-path").addEventListener("change", drawOverlay);
+
+// ---- Court calibration ----
+
+const CORNER_LABELS = [
+  "near-left (front-left)", "near-right (front-right)",
+  "far-right (back-right)", "far-left (back-left)",
+];
+
+function startCalibration() {
+  if (!currentJobId || !frameSize[0]) return;
+  video.pause();
+  stopLoop();
+  calibrating = true;
+  cornersImg = [];
+  canvas.style.pointerEvents = "auto";
+  $("#calib-panel").classList.remove("hidden");
+  drawCalibration();
+  updateCalibInstr();
+}
+
+function updateCalibInstr() {
+  const n = cornersImg.length;
+  if (n < 4) {
+    $("#calib-instr").textContent = `Click the ${CORNER_LABELS[n]} corner (${n + 1}/4).`;
+    $("#calib-apply").disabled = true;
+  } else {
+    $("#calib-instr").textContent = "4 corners set — click Apply, or Reset to redo.";
+    $("#calib-apply").disabled = false;
+  }
+}
+
+function drawCalibration() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!frameSize[0]) return;
+  const sx = canvas.width / frameSize[0];
+  const sy = canvas.height / frameSize[1];
+  ctx.fillStyle = "rgba(61, 169, 252, 0.95)";
+  ctx.strokeStyle = "rgba(61, 169, 252, 0.95)";
+  ctx.lineWidth = 2;
+  ctx.font = "13px -apple-system, sans-serif";
+  if (cornersImg.length >= 2) {
+    ctx.beginPath();
+    cornersImg.forEach((c, i) => {
+      const x = c[0] * sx, y = c[1] * sy;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    if (cornersImg.length === 4) ctx.closePath();
+    ctx.stroke();
+  }
+  cornersImg.forEach((c, i) => {
+    const x = c[0] * sx, y = c[1] * sy;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillText(String(i + 1), x + 8, y - 8);
+  });
+}
+
+function onCanvasClick(e) {
+  if (!calibrating || cornersImg.length >= 4) return;
+  const sx = canvas.width / frameSize[0];
+  const sy = canvas.height / frameSize[1];
+  cornersImg.push([e.offsetX / sx, e.offsetY / sy]);
+  drawCalibration();
+  updateCalibInstr();
+}
+
+async function applyCalibration() {
+  if (cornersImg.length !== 4 || !currentJobId) return;
+  $("#calib-apply").disabled = true;
+  $("#calib-instr").textContent = "Calibrating…";
+  try {
+    const body = {
+      corners: cornersImg,
+      court: $("#court-type").value,
+      camera_moves: $("#camera-moves").checked,
+    };
+    const res = await fetch(`/api/jobs/${currentJobId}/calibrate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const out = await res.json();
+    metrics = metrics || {};
+    metrics.players_court = out.players_court;
+    metrics.calibration = out.calibration;
+    calibrating = false;
+    canvas.style.pointerEvents = "none";
+    $("#calib-panel").classList.add("hidden");
+    drawOverlay();
+    renderCalibrated();
+    $("#calibrated").scrollIntoView({ behavior: "smooth" });
+  } catch (err) {
+    $("#calib-instr").textContent = "Calibration failed: " + err.message;
+    $("#calib-apply").disabled = false;
+  }
+}
+
+function renderCalibrated() {
+  if (!metrics || !metrics.players_court) {
+    $("#calibrated").classList.add("hidden");
+    return;
+  }
+  $("#calibrated").classList.remove("hidden");
+  const pc = metrics.players_court;
+  const cal = metrics.calibration || {};
+  $("#calib-approx").classList.toggle("hidden", !cal.approximate);
+  const cards = [
+    [pc.track_count_in_court ?? 0, "players on court"],
+    [(cal.court_m || []).join("×") + " m", "court size"],
+  ];
+  $("#court-grid").innerHTML = cards.map(([v, l]) =>
+    `<div class="metric"><span class="big">${v}</span>${l}</div>`).join("");
+  $("#court-players").innerHTML = (pc.per_track || []).length
+    ? pc.per_track.map((p) =>
+        `<li>P${p.track_id}: ${p.distance_m} m <span class="muted">(${p.frames_in_court} frames)</span></li>`).join("")
+    : '<li class="muted">No players detected inside the court.</li>';
+  drawCourtHeatmap(pc.heatmap);
+}
+
+function drawCourtHeatmap(hm) {
+  const cv = $("#court-heatmap");
+  const c = cv.getContext("2d");
+  c.clearRect(0, 0, cv.width, cv.height);
+  c.fillStyle = "#11141a";
+  c.fillRect(0, 0, cv.width, cv.height);
+  if (!hm || !hm.grid) return;
+  const { cols, rows, grid } = hm;
+  const pad = 10, w = cv.width - 2 * pad, h = cv.height - 2 * pad;
+  const cw = w / cols, ch = h / rows;
+  let max = 0;
+  for (const r of grid) for (const v of r) if (v > max) max = v;
+  if (max > 0) {
+    for (let r = 0; r < rows; r++) {
+      for (let cc = 0; cc < cols; cc++) {
+        const v = grid[r][cc] / max;
+        if (v <= 0) continue;
+        c.fillStyle = `rgba(255, ${Math.round(170 * (1 - v))}, 0, ${0.15 + 0.85 * v})`;
+        c.fillRect(pad + cc * cw, pad + r * ch, cw + 0.5, ch + 0.5);
+      }
+    }
+  }
+  // Court outline + net line (length axis runs along columns; net at mid-length).
+  c.strokeStyle = "rgba(255,255,255,0.4)";
+  c.lineWidth = 1;
+  c.strokeRect(pad, pad, w, h);
+  c.beginPath();
+  c.moveTo(pad + w / 2, pad);
+  c.lineTo(pad + w / 2, pad + h);
+  c.stroke();
+}
+
+$("#calib-btn").addEventListener("click", startCalibration);
+$("#calib-reset").addEventListener("click", () => {
+  cornersImg = [];
+  drawCalibration();
+  updateCalibInstr();
+});
+$("#calib-apply").addEventListener("click", applyCalibration);
+canvas.addEventListener("click", onCanvasClick);
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => (
