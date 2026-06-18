@@ -13,13 +13,17 @@ and `sports ball` (the volleyball, approximately).
 cd volleyball
 python3 -m venv .venv && source .venv/bin/activate
 
-# CPU build of torch — important on an Intel Mac (skips the huge CUDA build)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# macOS has no CUDA, so the default PyPI torch wheel is already the right
+# CPU/Metal build — no special index URL needed. ultralytics pulls it in.
 pip install -r requirements.txt
 
 # Annotated video + JSON next to the input
 python3 poc/detect_ball.py -i path/to/your_clip.mp4
 ```
+
+> On Linux with no GPU you'd instead use
+> `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`
+> to avoid the large CUDA build. On macOS, don't — that index has no Mac wheels.
 
 First run downloads `yolov8n.pt` (~6 MB) automatically.
 

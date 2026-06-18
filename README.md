@@ -40,8 +40,7 @@ See [`poc/README.md`](poc/README.md). Short version:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu  # Intel Mac: CPU build
-pip install -r requirements.txt
+pip install -r requirements.txt   # macOS: pulls the correct CPU/Metal torch automatically
 python3 poc/detect_ball.py -i your_clip.mp4
 ```
 
