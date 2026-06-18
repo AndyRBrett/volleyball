@@ -229,26 +229,34 @@ def _ball_candidates(session, url, cv2, frame, api_key, ball_conf) -> list[dict]
 
 
 def _select_ball(cands, last_ball, gate):
-    """Pick the best ball candidate.
+    """Pick the best ball candidate by confidence, size, and trajectory.
 
-    With no history, take the most confident. Once we have a recent ball
-    position, score each candidate by confidence minus a distance penalty from
-    that position — so a confident detection far across the frame (a light, a
-    gap in the trees) loses to a slightly-less-confident one right where the
-    ball just was. The gate sets how far the ball can plausibly travel between
-    samples.
+    Three signals combine into a score:
+      * confidence — the model's own certainty.
+      * size — the in-play ball is in the foreground, so it's larger in frame
+        than balls on the courts behind it; bigger candidates are preferred.
+        (Relative to the largest candidate in the frame, so it's scale-free.)
+      * trajectory — once we have a recent ball position, a gentle distance
+        penalty favours candidates near where the ball just was, rejecting a
+        far light/tree/background-ball without "sticking" to a stale spot when
+        a confident far detection (a real spike) appears.
     """
     if not cands:
         return None
-    if last_ball is None:
-        return max(cands, key=lambda c: c["conf"])
 
-    # Gentle distance penalty: enough to reject a far low/med-confidence
-    # distractor (light/tree), but not so steep that a confident far detection
-    # (a real spike that travelled far between samples) gets rejected.
+    def area(c):
+        x1, y1, x2, y2 = c["bbox"]
+        return max(1.0, (x2 - x1) * (y2 - y1))
+
+    max_area = max(area(c) for c in cands)
+
     def score(c):
-        d = math.hypot(c["center"][0] - last_ball[0], c["center"][1] - last_ball[1])
-        return c["conf"] - 0.25 * (d / gate)
+        s = c["conf"] + 0.4 * (area(c) / max_area)   # confident + foreground-large
+        if last_ball is not None:
+            d = math.hypot(c["center"][0] - last_ball[0],
+                           c["center"][1] - last_ball[1])
+            s -= 0.25 * (d / gate)
+        return s
 
     return max(cands, key=score)
 
