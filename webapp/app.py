@@ -47,6 +47,13 @@ try:
     from calibration import calibrate_players  # court calibration (optional)
 except Exception:  # noqa: BLE001
     calibrate_players = None
+try:
+    from coaching import SYSTEM_PROMPT, build_user_message, summarize
+    import anthropic
+except Exception:  # noqa: BLE001 - coaching is optional
+    anthropic = None
+
+COACH_MODEL = "claude-opus-4-8"
 
 RF_MODEL = os.environ.get("RF_MODEL", "volleyball_detection/2")
 DEFAULT_STRIDE = int(os.environ.get("PIPELINE_STRIDE", "5"))
@@ -247,6 +254,52 @@ async def calibrate(job_id: str, body: CalibrateBody):
     metrics.update(result)
     metrics_p.write_text(json.dumps(metrics, indent=2))
     return result
+
+
+@app.get("/api/jobs/{job_id}/coaching")
+async def get_coaching(job_id: str):
+    """Return a cached coaching readout if one was already generated."""
+    path = JOBS_DIR / job_id / "coaching.json"
+    if not path.exists():
+        raise HTTPException(404, "No coaching analysis yet.")
+    return FileResponse(path, media_type="application/json")
+
+
+@app.post("/api/jobs/{job_id}/coach")
+async def coach(job_id: str):
+    """Generate (or return cached) Claude coaching analysis from the metrics."""
+    job_dir = JOBS_DIR / job_id
+    cached = job_dir / "coaching.json"
+    if cached.exists():
+        return json.loads(cached.read_text())
+
+    if anthropic is None:
+        raise HTTPException(500, "Coaching unavailable: `pip install anthropic`.")
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise HTTPException(400, "Set ANTHROPIC_API_KEY in the server environment "
+                                 "to enable coaching analysis.")
+    metrics_p = job_dir / "metrics.json"
+    if not metrics_p.exists():
+        raise HTTPException(404, "No metrics for this job yet.")
+
+    summary = summarize(json.loads(metrics_p.read_text()))
+    try:
+        client = anthropic.Anthropic()
+        resp = client.messages.create(
+            model=COACH_MODEL,
+            max_tokens=2500,
+            thinking={"type": "adaptive"},
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": build_user_message(summary)}],
+        )
+    except anthropic.APIError as e:  # auth, rate limit, etc.
+        raise HTTPException(502, f"Claude API error: {e}")
+
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    out = {"analysis": text, "model": resp.model, "generated_at": _now(),
+           "summary": summary}
+    cached.write_text(json.dumps(out, indent=2))
+    return out
 
 
 # Static frontend (mounted last so /api/* wins).

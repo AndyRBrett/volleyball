@@ -125,6 +125,7 @@ async function openResult(job) {
     metrics = null;
   }
   renderMetrics();
+  loadCachedCoaching();
   $("#result-card").scrollIntoView({ behavior: "smooth" });
 }
 
@@ -449,6 +450,67 @@ function drawCourtHeatmap(hm) {
   c.lineTo(pad + w / 2, pad + h);
   c.stroke();
 }
+
+// ---- Coaching analysis (Claude) ----
+
+async function loadCachedCoaching() {
+  $("#coach-output").classList.add("hidden");
+  $("#coach-msg").textContent = "";
+  $("#coach-btn").disabled = false;
+  $("#coach-btn").textContent = "Generate coaching analysis";
+  if (!currentJobId) return;
+  try {
+    const res = await fetch(`/api/jobs/${currentJobId}/coaching`);
+    if (res.ok) renderCoaching(await res.json());
+  } catch (e) { /* none yet — leave the button */ }
+}
+
+async function generateCoaching() {
+  if (!currentJobId) return;
+  $("#coach-btn").disabled = true;
+  $("#coach-msg").textContent = "Analyzing with Claude… (this can take ~20s)";
+  try {
+    const res = await fetch(`/api/jobs/${currentJobId}/coach`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    renderCoaching(await res.json());
+    $("#coach-msg").textContent = "";
+  } catch (err) {
+    $("#coach-msg").textContent = "Coaching failed: " + err.message;
+    $("#coach-btn").disabled = false;
+  }
+}
+
+function renderCoaching(data) {
+  $("#coach-output").innerHTML = miniMarkdown(data.analysis || "");
+  $("#coach-output").classList.remove("hidden");
+  $("#coach-btn").textContent = "Regenerate analysis";
+  $("#coach-btn").disabled = false;
+}
+
+// Minimal, XSS-safe markdown: escape first, then headings/bold/bullets.
+function miniMarkdown(md) {
+  const lines = escapeHtml(md).split("\n");
+  let html = "", inList = false;
+  for (let line of lines) {
+    line = line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    if (/^#{1,6}\s/.test(line)) {
+      if (inList) { html += "</ul>"; inList = false; }
+      html += `<h4>${line.replace(/^#{1,6}\s/, "")}</h4>`;
+    } else if (/^\s*[-*]\s/.test(line)) {
+      if (!inList) { html += "<ul>"; inList = true; }
+      html += `<li>${line.replace(/^\s*[-*]\s/, "")}</li>`;
+    } else if (line.trim() === "") {
+      if (inList) { html += "</ul>"; inList = false; }
+    } else {
+      if (inList) { html += "</ul>"; inList = false; }
+      html += `<p>${line}</p>`;
+    }
+  }
+  if (inList) html += "</ul>";
+  return html;
+}
+
+$("#coach-btn").addEventListener("click", generateCoaching);
 
 $("#calib-btn").addEventListener("click", startCalibration);
 $("#calib-reset").addEventListener("click", () => {

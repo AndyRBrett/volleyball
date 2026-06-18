@@ -79,6 +79,14 @@
         </div>
       </div>
 
+      <div class="coaching">
+        <h3>🧠 Coaching analysis</h3>
+        <button id="coach-btn" type="button">Generate coaching analysis</button>
+        <p id="coach-msg" class="msg"></p>
+        <div id="coach-output" class="coach-output hidden"></div>
+        <p class="hint">Uses Claude (claude-opus-4-8) on the computed metrics. Needs ANTHROPIC_API_KEY set on the server. Calibrate first for real-world units in the analysis.</p>
+      </div>
+
       <div class="metrics" id="metrics">
         <div class="metric-grid" id="metric-grid"></div>
         <div class="metric-cols">

@@ -2,3 +2,4 @@
 fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9   # required by FastAPI for file uploads
+anthropic>=0.40           # Claude coaching readout (claude-opus-4-8)
