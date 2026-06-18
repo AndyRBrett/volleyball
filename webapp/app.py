@@ -86,7 +86,7 @@ def _write_status(job_id: str, **fields) -> None:
     p.write_text(json.dumps(current, indent=2))
 
 
-def _process_job(job_id: str, clip: Path, stride: int) -> None:
+def _process_job(job_id: str, clip: Path, stride: int, ball_conf: float) -> None:
     """Run the pipeline as a subprocess; record status as it goes."""
     job_dir = clip.parent
     annotated = job_dir / "annotated.mp4"
@@ -96,7 +96,7 @@ def _process_job(job_id: str, clip: Path, stride: int) -> None:
     cmd = [sys.executable, str(PIPELINE), "-i", str(clip),
            "-o", str(annotated), "--json", str(events), "--stride", str(stride)]
     if api_key:
-        cmd += ["--rf-model", RF_MODEL]
+        cmd += ["--rf-model", RF_MODEL, "--ball-conf", str(ball_conf)]
     else:
         cmd += ["--no-ball"]
 
@@ -145,7 +145,8 @@ def _process_job(job_id: str, clip: Path, stride: int) -> None:
 
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...), stride: int = Form(DEFAULT_STRIDE)):
+async def upload(file: UploadFile = File(...), stride: int = Form(DEFAULT_STRIDE),
+                 ball_conf: float = Form(0.30)):
     if not file.filename:
         raise HTTPException(400, "No file provided.")
     suffix = Path(file.filename).suffix.lower()
@@ -160,10 +161,11 @@ async def upload(file: UploadFile = File(...), stride: int = Form(DEFAULT_STRIDE
         f.write(await file.read())
 
     stride = max(1, min(int(stride), 30))
+    ball_conf = max(0.05, min(float(ball_conf), 0.95))
     _write_status(job_id, id=job_id, filename=file.filename, status="queued",
-                  stride=stride, created=_now())
+                  stride=stride, ball_conf=ball_conf, created=_now())
 
-    threading.Thread(target=_process_job, args=(job_id, clip, stride),
+    threading.Thread(target=_process_job, args=(job_id, clip, stride, ball_conf),
                      daemon=True).start()
     return {"job_id": job_id}
 

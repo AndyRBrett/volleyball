@@ -65,6 +65,7 @@ $("#upload-form").addEventListener("submit", async (e) => {
   const fd = new FormData();
   fd.append("file", fileInput.files[0]);
   fd.append("stride", $("#stride").value);
+  fd.append("ball_conf", $("#ball-conf").value);
 
   const btn = $("#upload-btn");
   btn.disabled = true;

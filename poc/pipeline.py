@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import sys
 import time
@@ -55,6 +56,10 @@ def parse_args(argv=None):
     p.add_argument("--player-conf", type=float, default=0.25, help="Player conf threshold.")
     p.add_argument("--ball-conf", type=float, default=0.30,
                    help="Ball conf threshold (0-1). Raise to cut false ball boxes.")
+    p.add_argument("--ball-gate", type=float, default=450.0,
+                   help="Trajectory gate (px): how far the ball can plausibly move "
+                        "between samples. Used to reject far-off false detections "
+                        "(trees/lights) in favour of ones near the recent ball.")
     p.add_argument("--imgsz", type=int, default=640, help="Player inference image size.")
     p.add_argument("--stride", type=int, default=2, help="Process every Nth frame.")
     p.add_argument("--max-frames", type=int, default=0,
@@ -114,6 +119,7 @@ def main(argv=None) -> int:
     trail: deque = deque(maxlen=args.trail)
     events: list[dict] = []
     frame_idx, processed, ball_seen = -1, 0, 0
+    last_ball = None  # last chosen ball center, for trajectory gating
     t0 = time.time()
 
     while True:
@@ -127,8 +133,11 @@ def main(argv=None) -> int:
         players = _detect_players(model, frame, args.player_conf, args.imgsz)
         ball = None
         if not args.no_ball:
-            ball = _detect_ball(session, rf_url, cv2, frame, args.api_key, args.ball_conf)
+            cands = _ball_candidates(session, rf_url, cv2, frame, args.api_key,
+                                     args.ball_conf)
+            ball = _select_ball(cands, last_ball, args.ball_gate)
             if ball is not None:
+                last_ball = ball["center"]
                 ball_seen += 1
                 trail.append((int(ball["center"][0]), int(ball["center"][1])))
 
@@ -191,10 +200,11 @@ def _detect_players(model, frame, conf, imgsz) -> list[dict]:
     return players
 
 
-def _detect_ball(session, url, cv2, frame, api_key, ball_conf):
+def _ball_candidates(session, url, cv2, frame, api_key, ball_conf) -> list[dict]:
+    """All 'ball' detections in a frame (Roboflow may return several)."""
     ok, buf = cv2.imencode(".jpg", frame)
     if not ok:
-        return None
+        return []
     b64 = base64.b64encode(buf).decode("ascii")
     try:
         resp = session.post(
@@ -204,21 +214,43 @@ def _detect_ball(session, url, cv2, frame, api_key, ball_conf):
         )
     except Exception as e:  # noqa: BLE001 - network hiccup shouldn't kill the run
         print(f"  (ball request failed: {e})", file=sys.stderr)
-        return None
+        return []
     if resp.status_code != 200:
         print(f"  (Roboflow HTTP {resp.status_code}: {resp.text[:200]})", file=sys.stderr)
-        return None
-    best = None
+        return []
+    cands = []
     for d in resp.json().get("predictions", []):
         if "ball" in str(d.get("class", "")).lower():
-            if best is None or d["confidence"] > best["confidence"]:
-                best = d
-    if best is None:
+            cands.append({"center": [d["x"], d["y"]],
+                          "bbox": [d["x"] - d["width"] / 2, d["y"] - d["height"] / 2,
+                                   d["x"] + d["width"] / 2, d["y"] + d["height"] / 2],
+                          "conf": float(d["confidence"])})
+    return cands
+
+
+def _select_ball(cands, last_ball, gate):
+    """Pick the best ball candidate.
+
+    With no history, take the most confident. Once we have a recent ball
+    position, score each candidate by confidence minus a distance penalty from
+    that position — so a confident detection far across the frame (a light, a
+    gap in the trees) loses to a slightly-less-confident one right where the
+    ball just was. The gate sets how far the ball can plausibly travel between
+    samples.
+    """
+    if not cands:
         return None
-    return {"center": [best["x"], best["y"]],
-            "bbox": [best["x"] - best["width"] / 2, best["y"] - best["height"] / 2,
-                     best["x"] + best["width"] / 2, best["y"] + best["height"] / 2],
-            "conf": float(best["confidence"])}
+    if last_ball is None:
+        return max(cands, key=lambda c: c["conf"])
+
+    # Gentle distance penalty: enough to reject a far low/med-confidence
+    # distractor (light/tree), but not so steep that a confident far detection
+    # (a real spike that travelled far between samples) gets rejected.
+    def score(c):
+        d = math.hypot(c["center"][0] - last_ball[0], c["center"][1] - last_ball[1])
+        return c["conf"] - 0.25 * (d / gate)
+
+    return max(cands, key=score)
 
 
 def _draw(cv2, frame, players, ball, trail) -> None:
