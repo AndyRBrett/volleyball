@@ -409,8 +409,11 @@ function renderCalibrated() {
   $("#court-grid").innerHTML = cards.map(([v, l]) =>
     `<div class="metric"><span class="big">${v}</span>${l}</div>`).join("");
   $("#court-players").innerHTML = (pc.per_track || []).length
-    ? pc.per_track.map((p) =>
-        `<li>P${p.track_id}: ${p.distance_m} m <span class="muted">(${p.frames_in_court} frames)</span></li>`).join("")
+    ? pc.per_track.map((p) => {
+        const spd = p.top_speed_kmh != null
+          ? ` · top ${p.top_speed_kmh} km/h (${p.top_speed_mph} mph)` : "";
+        return `<li>P${p.track_id}: ${p.distance_m} m${spd} <span class="muted">(${p.frames_in_court} frames)</span></li>`;
+      }).join("")
     : '<li class="muted">No players detected inside the court.</li>';
   drawCourtHeatmap(pc.heatmap);
 }

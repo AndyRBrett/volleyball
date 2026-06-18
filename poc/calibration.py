@@ -25,8 +25,11 @@ import math
 COURTS = {"beach": (16.0, 8.0), "indoor": (18.0, 9.0)}
 IN_COURT_MARGIN_M = 1.0   # tolerance outside the lines (warm-up space, line judges)
 MIN_FRAMES_IN_COURT = 3   # ignore fleeting in-court blips when counting players
+MAX_PLAYER_SPEED_MS = 11.0  # ~40 km/h; faster than a sprint -> detection jitter
 HEATMAP_COLS = 24
 HEATMAP_ROWS = 12
+MS_TO_KMH = 3.6
+MS_TO_MPH = 2.23694
 
 
 def homography(corners_img: list[list[float]], length: float, width: float):
@@ -67,11 +70,13 @@ def calibrate_players(events, corners, court, fps, camera_moves):
     H = homography(corners, length, width)
 
     grid = [[0] * HEATMAP_COLS for _ in range(HEATMAP_ROWS)]
-    last: dict[int, tuple[float, float]] = {}
+    last: dict[int, tuple[float, float, float]] = {}   # cx, cy, time_s
     dist: dict[int, float] = {}
+    top_ms: dict[int, float] = {}
     seen: dict[int, int] = {}
 
     for e in events:
+        t = e.get("time_s", 0.0)
         for pl in e.get("players", []):
             x1, y1, x2, y2 = pl["bbox"]
             fx, fy = (x1 + x2) / 2.0, y2          # foot = bottom-center
@@ -86,12 +91,19 @@ def calibrate_players(events, corners, court, fps, camera_moves):
                 continue
             seen[tid] = seen.get(tid, 0) + 1
             if tid in last:
-                dist[tid] = dist.get(tid, 0.0) + math.hypot(cx - last[tid][0],
-                                                            cy - last[tid][1])
-            last[tid] = (cx, cy)
+                step = math.hypot(cx - last[tid][0], cy - last[tid][1])
+                dist[tid] = dist.get(tid, 0.0) + step
+                dt = t - last[tid][2]
+                if dt > 0:
+                    v = step / dt
+                    if v <= MAX_PLAYER_SPEED_MS:   # reject jitter spikes
+                        top_ms[tid] = max(top_ms.get(tid, 0.0), v)
+            last[tid] = (cx, cy, t)
 
     per_track = [{"track_id": tid, "frames_in_court": seen[tid],
-                  "distance_m": round(dist.get(tid, 0.0), 2)}
+                  "distance_m": round(dist.get(tid, 0.0), 2),
+                  "top_speed_kmh": round(top_ms.get(tid, 0.0) * MS_TO_KMH, 1),
+                  "top_speed_mph": round(top_ms.get(tid, 0.0) * MS_TO_MPH, 1)}
                  for tid in seen if seen[tid] >= MIN_FRAMES_IN_COURT]
     per_track.sort(key=lambda p: p["distance_m"], reverse=True)
 
