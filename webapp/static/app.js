@@ -511,6 +511,27 @@ function miniMarkdown(md) {
   return html;
 }
 
+async function recomputeMetrics() {
+  if (!currentJobId) return;
+  const btn = $("#recompute-btn");
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = "Recomputing…";
+  try {
+    const res = await fetch(`/api/jobs/${currentJobId}/recompute`, { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    metrics = await res.json();
+    renderMetrics();
+    drawOverlay();
+  } catch (err) {
+    $("#result-stats").textContent = "Recompute failed: " + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+$("#recompute-btn").addEventListener("click", recomputeMetrics);
 $("#coach-btn").addEventListener("click", generateCoaching);
 
 $("#calib-btn").addEventListener("click", startCalibration);

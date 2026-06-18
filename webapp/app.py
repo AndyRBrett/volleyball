@@ -229,6 +229,30 @@ async def job_metrics(job_id: str):
     return FileResponse(path, media_type="application/json")
 
 
+@app.post("/api/jobs/{job_id}/recompute")
+async def recompute(job_id: str):
+    """Re-run the metrics layer on existing detections (no re-detection / API).
+
+    Picks up metrics improvements (e.g. ball-path outlier rejection) for a job
+    that was processed with older code. Preserves any calibration section.
+    """
+    if compute_metrics is None:
+        raise HTTPException(500, "Metrics module unavailable.")
+    job_dir = JOBS_DIR / job_id
+    events_p = job_dir / "events.json"
+    if not events_p.exists():
+        raise HTTPException(404, "No events for this job.")
+    m = compute_metrics(json.loads(events_p.read_text()))
+    metrics_p = job_dir / "metrics.json"
+    if metrics_p.exists():
+        old = json.loads(metrics_p.read_text())
+        for k in ("calibration", "players_court"):
+            if k in old:
+                m[k] = old[k]
+    metrics_p.write_text(json.dumps(m, indent=2))
+    return m
+
+
 class CalibrateBody(BaseModel):
     corners: list[list[float]]   # [near-left, near-right, far-right, far-left] in image px
     court: str = "beach"

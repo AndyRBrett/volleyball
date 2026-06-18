@@ -85,10 +85,40 @@ def compute_metrics(data: dict) -> dict:
     }
 
 
+def _reject_outliers(detected):
+    """Drop 'there-and-back' spikes (ball jumps to a tree/light for a frame or
+    two, then back). A real ball travels far but doesn't return to nearly the
+    same spot; an outlier does. Scale-free: thresholds are relative to the
+    median step, so it adapts to clip resolution and ball speed. Iterative, to
+    catch short multi-frame excursions, but conservative so genuine fast motion
+    (a one-directional large step) is kept.
+    """
+    pts = list(detected)
+    while len(pts) >= 3:
+        steps = [math.hypot(pts[i + 1][2][0] - pts[i][2][0],
+                            pts[i + 1][2][1] - pts[i][2][1])
+                 for i in range(len(pts) - 1)]
+        med = sorted(steps)[len(steps) // 2] or 1.0
+        worst_i, worst_cost = None, 0.0
+        for i in range(1, len(pts) - 1):
+            a, b, c = pts[i - 1][2], pts[i][2], pts[i + 1][2]
+            d_prev = math.hypot(b[0] - a[0], b[1] - a[1])
+            d_next = math.hypot(c[0] - b[0], c[1] - b[1])
+            d_skip = math.hypot(c[0] - a[0], c[1] - a[1])
+            cost = d_prev + d_next - d_skip            # extra path from the excursion
+            if d_prev > 4 * med and d_next > 4 * med and cost > worst_cost:
+                worst_cost, worst_i = cost, i
+        if worst_i is None:
+            break
+        del pts[worst_i]
+    return pts
+
+
 def _interpolate_ball(events, fps) -> list[dict]:
     """Fill short gaps between ball detections with linear interpolation."""
     detected = [(e["frame"], e["time_s"], e["ball"]["center"])
                 for e in events if e.get("ball")]
+    detected = _reject_outliers(detected)
     if not detected:
         return []
     max_gap_frames = MAX_INTERP_GAP_S * fps

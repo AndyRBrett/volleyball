@@ -91,6 +91,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 .stats { color: var(--muted); margin: 0 0 12px; }
 .toggle { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--muted); }
+.ghost-btn { background: #2a2f3a; color: var(--ink); border: 1px solid #3a4150; font-size: 0.82rem; padding: 6px 10px; margin-left: 14px; }
 
 .video-wrap { position: relative; width: 100%; line-height: 0; }
 #video { width: 100%; border-radius: 8px; display: block; }
