@@ -8,5 +8,5 @@
 #
 ultralytics>=8.1          # YOLOv8 detection + ByteTrack tracking
 opencv-python>=4.8        # video I/O + drawing (use opencv-python-headless on servers)
-numpy>=1.24
+numpy>=1.24,<2           # torch wheels (esp. on Python 3.9) are built for NumPy 1.x; NumPy 2 breaks the ABI
 lap>=0.5                  # required by ByteTrack for ID assignment
