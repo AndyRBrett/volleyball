@@ -9,10 +9,76 @@ A lightweight volleyball computer-vision pipeline with health monitoring for the
 
 | File | Purpose |
 | --- | --- |
-| `write_status.py` | Publishes `overseer-status.json` on every run (heartbeat + ingest signals + idle nudge). |
-| `ingest_watch.py` | Watches a drop folder, auto-detects new footage, and enqueues unseen clips. |
+| `detect.py` | CV front-end: turns raw clip frames into ball-track tracking data. |
+| `pipeline.py` | Runs the full pipeline (detect → highlights → coaching) and the self-test. |
+| `coaching.py` | Per-clip coaching report: rally length, ball speed, contact-zone heatmap. |
 | `highlights.py` | Segments tracking data into rallies and emits tagged highlight clips. |
 | `cosmos_tagger.py` | Optional clip tag enrichment via NVIDIA **Cosmos Reason**. |
+| `ingest_watch.py` | Watches a drop folder, auto-detects new footage, and enqueues unseen clips. |
+| `write_status.py` | Publishes `overseer-status.json` (heartbeat + ingest signals + idle nudge + self-test verification). |
+
+## End-to-end pipeline + self-test
+
+The pipeline runs in three stages, each a small stdlib-only module:
+
+```
+clip frames ──detect.py──▶ tracking ──highlights.py──▶ tagged rally manifest
+                              └────────coaching.py────▶ coaching report (length/speed/heatmap)
+```
+
+`detect.py` is the CV front-end that was missing — the reason the pipeline had
+*processed 0 frames ever*. It reads a clip stored as a gzipped Netpbm (P5/PGM)
+frame sequence and recovers the ball position per frame as the centroid of the
+brightest blob, emitting the same tracking schema the rest of the pipeline
+consumes. No ffmpeg/opencv/GPU required, so it runs anywhere CI does.
+
+A short (~10s) **reference clip** is bundled as a fixture so the whole pipeline
+can be proven end-to-end:
+
+```bash
+python pipeline.py --self-test          # detect → highlights → coaching on the reference clip
+```
+
+The self-test fails (non-zero exit) if detection finds no ball, no rallies
+segment, or the coaching report comes back empty — so a broken pipeline **fails
+the build** (`.github/workflows/tests.yml`) instead of silently sitting at zero
+frames. It also writes `results/selftest.json`, which `write_status.py` surfaces
+as `pipeline_selftest` in the overseer status, distinguishing *healthy-but-idle*
+(pipeline verified, just no new footage) from *broken*.
+
+The fixtures live in `fixtures/` and are regenerated with
+`python fixtures/make_reference_clip.py`.
+
+## Auto coaching reports per clip
+
+`coaching.py` turns a clip's tracking data into a coach-facing summary — the
+project's core user-facing value:
+
+```bash
+python pipeline.py fixtures/reference_clip.pgm.gz --events fixtures/reference_clip.events.json \
+    --meters-per-pixel 0.1125         # full run: manifest + coaching report + metrics
+python coaching.py tracking.json      # coaching report only, from existing tracking JSON
+```
+
+Per rally and per clip it reports:
+
+- **rally length** — duration in seconds and the number of tracked contacts.
+- **ball speed** — average and peak from frame-to-frame motion (px/s, plus m/s
+  when a `--meters-per-pixel` court calibration is given).
+- **contact-zone heatmap** — a coarse court grid counting where contacts
+  happened, rendered as ASCII in the human-readable summary:
+
+```
+  rally_001: 1.7s, 3 contacts [serve, set, attack], peak 56.57 px/s (6.36 m/s)
+  ...
+  contact-zone heatmap (court top-left origin):
+    |  @   |
+    | = =@ |
+    |@=    |
+```
+
+Output is written to `coaching/report.json` (machine-readable) and
+`coaching/summary.txt` (the coach-facing artifact).
 
 ## Idle-footage nudge + drop-folder auto-detect (issue #8)
 

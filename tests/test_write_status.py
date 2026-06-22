@@ -58,5 +58,34 @@ class TestBuildStatus(unittest.TestCase):
         self.assertIn("last_run_at", status)
 
 
+class TestSelfTestSummary(unittest.TestCase):
+    def test_missing_selftest_reads_unverified(self):
+        summary = write_status.build_selftest_summary({})
+        self.assertFalse(summary["ok"])
+        self.assertIsNone(summary["verified_at"])
+
+    def test_passing_selftest_surfaced(self):
+        record = {
+            "ok": True,
+            "verified_at": "2026-06-22T06:00:00Z",
+            "frames_processed": 104,
+            "rally_count": 3,
+            "clip": "fixtures/reference_clip.pgm.gz",
+        }
+        summary = write_status.build_selftest_summary(record)
+        self.assertTrue(summary["ok"])
+        self.assertEqual(summary["frames_processed"], 104)
+        self.assertEqual(summary["rally_count"], 3)
+
+    def test_status_includes_pipeline_selftest(self):
+        status = write_status.build_status({}, selftest={"ok": True, "frames_processed": 104})
+        self.assertIn("pipeline_selftest", status)
+        self.assertTrue(status["pipeline_selftest"]["ok"])
+
+    def test_status_selftest_defaults_unverified(self):
+        status = write_status.build_status({})
+        self.assertFalse(status["pipeline_selftest"]["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

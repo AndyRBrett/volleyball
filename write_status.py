@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 STATUS_PATH = "overseer-status.json"
 DEFAULT_RESULTS_PATH = "results/metrics.json"
+DEFAULT_SELFTEST_PATH = "results/selftest.json"
 DEFAULT_QUEUE_PATH = "ingest_queue.json"
 # Days of idleness after which the overseer should be nudged to feed footage.
 DEFAULT_IDLE_THRESHOLD_DAYS = 14
@@ -69,6 +70,23 @@ def load_pending_footage() -> int:
         return 0
 
 
+def load_selftest() -> dict:
+    """Read the pipeline self-test result, or {} if it has never run.
+
+    pipeline.py --self-test writes results/selftest.json when the full CV
+    pipeline runs cleanly on the bundled reference clip. Surfacing it lets the
+    overseer tell "healthy but idle" (pipeline verified, just no new footage)
+    from "broken" (self-test failing/absent) -- the exact distinction that was
+    impossible while the pipeline sat at 0 frames with no proof it worked.
+    """
+    path = os.environ.get("VOLLEYBALL_SELFTEST_PATH", DEFAULT_SELFTEST_PATH)
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (FileNotFoundError, ValueError):
+        return {}
+
+
 def _idle_threshold_days() -> int:
     try:
         return int(os.environ.get("VOLLEYBALL_IDLE_THRESHOLD_DAYS", DEFAULT_IDLE_THRESHOLD_DAYS))
@@ -92,7 +110,22 @@ def build_nudge(days_since, threshold, pending):
     return None
 
 
-def build_status(results: dict, pending_footage: int = 0) -> dict:
+def build_selftest_summary(selftest: dict) -> dict:
+    """Map a raw self-test record onto the status schema's pipeline block.
+
+    ``ok`` is False (not absent) when no self-test record exists, so a pipeline
+    that has never proven itself reads as unverified rather than silently fine.
+    """
+    if not selftest:
+        return {"ok": False, "verified_at": None}
+    summary = {"ok": bool(selftest.get("ok"))}
+    for key in ("verified_at", "frames_processed", "rally_count", "clip"):
+        if key in selftest:
+            summary[key] = selftest[key]
+    return summary
+
+
+def build_status(results: dict, pending_footage: int = 0, selftest: dict = None) -> dict:
     """Map pipeline results onto the overseer status schema.
 
     Always-emitted fields default to a healthy-idle record. Optional fields
@@ -136,6 +169,11 @@ def build_status(results: dict, pending_footage: int = 0) -> dict:
     status["needs_footage"] = nudge is not None
     status["nudge"] = nudge
 
+    # Pipeline self-test verification: proof the CV pipeline actually processes
+    # frames end-to-end (resolves the "0 frames ever -- idle or broken?"
+    # ambiguity that got the project flagged). Written by pipeline.py --self-test.
+    status["pipeline_selftest"] = build_selftest_summary(selftest or {})
+
     detection_rate = results.get("detection_rate")
     if detection_rate is not None:
         status["detection_rate"] = detection_rate
@@ -148,7 +186,11 @@ def build_status(results: dict, pending_footage: int = 0) -> dict:
 
 
 def main() -> None:
-    status = build_status(load_results(), pending_footage=load_pending_footage())
+    status = build_status(
+        load_results(),
+        pending_footage=load_pending_footage(),
+        selftest=load_selftest(),
+    )
     with open(STATUS_PATH, "w") as fh:
         json.dump(status, fh, indent=2, sort_keys=True)
         fh.write("\n")

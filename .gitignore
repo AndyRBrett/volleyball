@@ -10,3 +10,10 @@ drop/*
 # Rendered highlight clips are large; the manifest (highlights/manifest.json)
 # is the dashboard artifact and may be committed if desired.
 highlights/*.mp4
+
+# Per-run pipeline artifacts are regenerated from footage and need not be
+# committed. results/selftest.json IS committed (it's the pipeline-verified
+# heartbeat the overseer reads), so it's explicitly un-ignored.
+coaching/
+results/metrics.json
+!results/selftest.json

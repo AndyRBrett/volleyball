@@ -1,0 +1,51 @@
+{
+  "fps": 10,
+  "source": "fixtures/reference_clip.pgm.gz",
+  "events": [
+    {
+      "t": 0.1,
+      "type": "serve",
+      "player": 4
+    },
+    {
+      "t": 0.8,
+      "type": "set",
+      "player": 6
+    },
+    {
+      "t": 1.4,
+      "type": "attack",
+      "player": 9
+    },
+    {
+      "t": 4.3,
+      "type": "dig",
+      "player": 2
+    },
+    {
+      "t": 5.2,
+      "type": "set",
+      "player": 6
+    },
+    {
+      "t": 6.0,
+      "type": "attack",
+      "player": 11
+    },
+    {
+      "t": 6.2,
+      "type": "block",
+      "player": 5
+    },
+    {
+      "t": 8.9,
+      "type": "reception",
+      "player": 3
+    },
+    {
+      "t": 9.8,
+      "type": "attack",
+      "player": 9
+    }
+  ]
+}

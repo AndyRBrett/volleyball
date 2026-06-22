@@ -1,0 +1,8 @@
+{
+  "clip": "fixtures/reference_clip.pgm.gz",
+  "detected_frames": 58,
+  "frames_processed": 104,
+  "ok": true,
+  "rally_count": 3,
+  "verified_at": "2026-06-22T22:18:10Z"
+}

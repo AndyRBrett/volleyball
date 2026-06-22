@@ -26,6 +26,12 @@ jobs:
       - name: Scan drop folder for new footage
         run: python ingest_watch.py
 
+      # Prove the CV pipeline works end-to-end on the bundled reference clip and
+      # record results/selftest.json, so the status reflects a *verified* (not
+      # merely idle) pipeline. A broken pipeline fails here and is visible.
+      - name: Pipeline self-test (reference clip)
+        run: python pipeline.py --self-test
+
       - name: Write overseer status
         run: python write_status.py
 
@@ -33,7 +39,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add overseer-status.json ingest_state.json ingest_queue.json
+          git add overseer-status.json ingest_state.json ingest_queue.json results/selftest.json
           if git diff --cached --quiet; then
             echo "No change to status or ingest state"
           else

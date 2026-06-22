@@ -17,3 +17,9 @@ jobs:
           python-version: "3.x"
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+
+      # End-to-end pipeline self-test on the bundled reference clip. This fails
+      # the build if the CV pipeline is broken, instead of letting it sit
+      # silently at "0 frames processed" the way it did before.
+      - name: Pipeline self-test (reference clip)
+        run: python pipeline.py --self-test
