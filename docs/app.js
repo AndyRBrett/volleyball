@@ -6,7 +6,7 @@
 
 const API = "https://api.github.com";
 const CFG_KEY = "coachvision.cfg";
-const DEFAULTS = { owner: "AndyRBrett", repo: "volleyball", branch: "main", token: "" };
+const DEFAULTS = { owner: "AndyRBrett", repo: "coachvision", branch: "main", token: "" };
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, cls, text) => {
