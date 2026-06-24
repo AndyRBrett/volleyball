@@ -123,11 +123,11 @@ through the Actions API.
 **Deploy it** (once): **Settings → Pages → Source: GitHub Actions**. The
 `pages.yml` workflow then publishes `docs/` on every push to `main`, and the app
 lives at `https://<owner>.github.io/<repo>/` (for this repo,
-`https://andyrbrett.github.io/volleyball/`). Open it on your phone and
+`https://andyrbrett.github.io/coachvision/`). Open it on your phone and
 **Add to Home Screen** to install it.
 
 **First run:** open **Settings** in the app and set owner / repo / branch
-(defaults `AndyRBrett` / `volleyball` / `main`) and a GitHub token. Reading
+(defaults `AndyRBrett` / `coachvision` / `main`) and a GitHub token. Reading
 sessions from a public repo needs no token; the **Analyze** button does. Use a
 fine-grained PAT scoped to this repo with **Actions: Read and write** +
 **Contents: Read**, or a classic token with `repo` + `workflow`. The token is
