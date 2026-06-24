@@ -119,7 +119,7 @@ def build_selftest_summary(selftest: dict) -> dict:
     if not selftest:
         return {"ok": False, "verified_at": None}
     summary = {"ok": bool(selftest.get("ok"))}
-    for key in ("verified_at", "frames_processed", "rally_count", "clip"):
+    for key in ("verified_at", "frames_processed", "rally_count", "clip", "domain"):
         if key in selftest:
             summary[key] = selftest[key]
     return summary
@@ -157,6 +157,11 @@ def build_status(results: dict, pending_footage: int = 0, selftest: dict = None)
         "frames_processed": results.get("frames_processed", 0),
         "errors": results.get("errors", []),
     }
+
+    # Which sport the pipeline is currently configured for, when the metrics
+    # record it. Omitted (not invented) for legacy results that predate domains.
+    if results.get("domain") is not None:
+        status["domain"] = results["domain"]
 
     # Idle-footage nudge (Overseer #8): surface prolonged idleness and any
     # footage that was dropped but never consumed, so "works but unused" is

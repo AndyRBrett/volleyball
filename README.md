@@ -1,21 +1,72 @@
 # volleyball
 
-A lightweight volleyball computer-vision pipeline with health monitoring for the
+A lightweight computer-vision coaching pipeline with health monitoring for the
 **Project Overseer** (a weekly automated reviewer that reads
 `overseer-status.json` to tell whether the pipeline is *healthy-but-idle* or
 *broken*).
+
+It ships with two interchangeable **sport domains** — **volleyball** and
+**martial arts** — so you can point it at whatever footage you're actually
+recording (see [Switching sports](#switching-sports-volleyball--martial-arts)).
 
 ## Components
 
 | File | Purpose |
 | --- | --- |
-| `detect.py` | CV front-end: turns raw clip frames into ball-track tracking data. |
+| `domains.py` | Sport domains (volleyball / martial arts): detector choice, tag vocabulary, report wording, and segmentation defaults. |
+| `detect.py` | CV front-end: turns raw clip frames into subject-track tracking data (ball or fighter). |
 | `pipeline.py` | Runs the full pipeline (detect → highlights → coaching) and the self-test. |
 | `coaching.py` | Per-clip coaching report: rally length, ball speed, contact-zone heatmap. |
 | `highlights.py` | Segments tracking data into rallies and emits tagged highlight clips. |
 | `cosmos_tagger.py` | Optional clip tag enrichment via NVIDIA **Cosmos Reason**. |
 | `ingest_watch.py` | Watches a drop folder, auto-detects new footage, and enqueues unseen clips. |
 | `write_status.py` | Publishes `overseer-status.json` (heartbeat + ingest signals + idle nudge + self-test verification). |
+
+## Switching sports (volleyball ⇄ martial arts)
+
+The pipeline is mechanically sport-agnostic: it tracks one **subject point** per
+frame, segments play from gaps in that point's motion, tags each segment from
+timed events, and bins events onto a **surface** grid. A `Domain` (`domains.py`)
+bundles the only things that actually differ between sports:
+
+| | volleyball | martial arts |
+| --- | --- | --- |
+| detector | brightest blob (the ball) | **motion energy** (the moving fighter) |
+| play segment | rally | exchange |
+| subject / surface | ball / court | fighter / mat |
+| action tags | serve, set, attack, block, dig… | jab, cross, hook, kick, knee, takedown, clinch… |
+
+Why a different detector? Martial arts has no high-contrast ball to track, so the
+subject is recovered with **motion-energy temporal segmentation** — thresholding
+the frame-to-frame pixel difference and taking the centroid of what changed. A
+fighter standing still produces no motion and reads as the gap between exchanges,
+the direct analogue of a volleyball going out of play. (Standard dependency-free
+approach; see e.g. [energy-guided temporal segmentation](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7506802/).)
+
+Select the domain with the `--domain` flag or the `PIPELINE_DOMAIN` env var
+(default `volleyball`, preserving prior behaviour and the overseer's status
+contract):
+
+```bash
+# Process martial-arts footage end-to-end
+python pipeline.py clip.pgm.gz --events clip.events.json --domain martial_arts
+
+# Or set it once for the whole session (detect.py / highlights.py / coaching.py
+# all read it)
+export PIPELINE_DOMAIN=martial_arts
+python pipeline.py --self-test          # runs the martial-arts reference clip
+```
+
+For the automated weekly workflow, set the repository variable
+`PIPELINE_DOMAIN` (Settings → Secrets and variables → Actions → Variables) to
+`martial_arts` to switch detection, the self-test, and the published status
+without touching code. Each domain bundles its own reference clip
+(`fixtures/`), so the self-test proves *its* detector end-to-end.
+
+The pipeline's machine-readable keys (`rally_count`, `frames_processed`, …) stay
+stable across domains so the Project Overseer keeps working; only the words in
+the human-facing coaching summary change (exchanges/strikes/mat vs.
+rallies/contacts/court).
 
 ## End-to-end pipeline + self-test
 
@@ -47,7 +98,8 @@ as `pipeline_selftest` in the overseer status, distinguishing *healthy-but-idle*
 (pipeline verified, just no new footage) from *broken*.
 
 The fixtures live in `fixtures/` and are regenerated with
-`python fixtures/make_reference_clip.py`.
+`python fixtures/make_reference_clip.py` (volleyball) and
+`python fixtures/make_martialarts_clip.py` (martial arts).
 
 ## Auto coaching reports per clip
 

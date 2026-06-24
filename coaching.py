@@ -24,6 +24,7 @@ import math
 import os
 from datetime import datetime, timezone
 
+import domains
 import highlights
 
 DEFAULT_HEATMAP_COLS = 6
@@ -140,20 +141,21 @@ def render_heatmap(heatmap):
     return lines
 
 
-def rally_report(rally, index, tracking, meters_per_pixel=None):
-    """Build the coaching report for a single rally window."""
+def rally_report(rally, index, tracking, meters_per_pixel=None, domain=None):
+    """Build the coaching report for a single segment window."""
+    domain = domains.get_domain(domain if domain is not None else tracking.get("domain"))
     frames = tracking.get("frames", [])
     events = tracking.get("events", [])
     fps = float(tracking.get("fps") or 30.0)
     start, end = rally["start"], rally["end"]
     contacts = [ev for ev in events if ev.get("t") is not None and start <= ev["t"] <= end]
     return {
-        "id": f"rally_{index:03d}",
+        "id": f"{domain.segment_noun}_{index:03d}",
         "start": round(start, 3),
         "end": round(end, 3),
         "length_s": round(end - start, 3),
         "contacts": len(contacts),
-        "tags": highlights.tag_rally(rally, events),
+        "tags": highlights.tag_rally(rally, events, known_tags=domain.tags),
         "ball_speed": ball_speed(frames, start, end, fps, meters_per_pixel=meters_per_pixel),
     }
 
@@ -164,14 +166,24 @@ def build_report(
     meters_per_pixel=None,
     heatmap_cols=DEFAULT_HEATMAP_COLS,
     heatmap_rows=DEFAULT_HEATMAP_ROWS,
-    max_gap_s=highlights.DEFAULT_MAX_GAP_S,
-    min_rally_s=highlights.DEFAULT_MIN_RALLY_S,
+    max_gap_s=None,
+    min_rally_s=None,
+    domain=None,
 ):
     """Build a full coaching report for a clip's tracking data.
 
-    Segments rallies (unless caller supplies them), reports per-rally length /
-    speed / tags, and a clip-wide contact-zone heatmap plus roll-up totals.
+    The active ``domain`` (argument, the tracking record's ``domain``, or the
+    configured default) supplies the tag vocabulary, segment id prefix, report
+    wording, and segmentation defaults. Segments play (unless ``rallies`` are
+    supplied), reports per-segment length / speed / tags, and a clip-wide
+    contact-zone heatmap plus roll-up totals. Internal JSON keys (``rally_count``,
+    ``ball_speed``, ``contact_heatmap``, ``court``) stay stable across domains;
+    ``domain`` is recorded so render_summary can pick the right words.
     """
+    domain = domains.get_domain(domain if domain is not None else tracking.get("domain"))
+    max_gap_s = domain.max_gap_s if max_gap_s is None else max_gap_s
+    min_rally_s = domain.min_segment_s if min_rally_s is None else min_rally_s
+
     fps = float(tracking.get("fps") or 30.0)
     frames = tracking.get("frames", [])
     events = tracking.get("events", [])
@@ -181,7 +193,8 @@ def build_report(
     if rallies is None:
         rallies = highlights.segment_rallies(frames, fps, max_gap_s=max_gap_s, min_rally_s=min_rally_s)
 
-    rally_reports = [rally_report(r, i, tracking, meters_per_pixel) for i, r in enumerate(rallies, start=1)]
+    rally_reports = [rally_report(r, i, tracking, meters_per_pixel, domain=domain)
+                     for i, r in enumerate(rallies, start=1)]
     heatmap = contact_heatmap(frames, events, width, height, fps, cols=heatmap_cols, rows=heatmap_rows)
 
     total_play = round(sum(r["length_s"] for r in rally_reports), 3)
@@ -191,6 +204,7 @@ def build_report(
     return {
         "generated_at": _utc_now_iso(),
         "source": tracking.get("source"),
+        "domain": domain.key,
         "fps": fps,
         "court": {"width": width, "height": height, "meters_per_pixel": meters_per_pixel},
         "rally_count": len(rally_reports),
@@ -203,14 +217,21 @@ def build_report(
 
 
 def render_summary(report):
-    """Render a human-readable coaching summary (the coach-facing artifact)."""
+    """Render a human-readable coaching summary (the coach-facing artifact).
+
+    Wording follows the report's ``domain`` (segment/subject/surface/contact
+    nouns) so a volleyball clip reads in rallies and ball speed while a martial
+    -arts clip reads in exchanges and fighter speed.
+    """
+    domain = domains.get_domain(report.get("domain"))
     lines = []
-    lines.append(f"Coaching report -- {report.get('source')}")
-    lines.append(f"  rallies: {report['rally_count']}   total play: {report['total_play_s']}s"
+    lines.append(f"Coaching report ({domain.label}) -- {report.get('source')}")
+    lines.append(f"  {domain.segment_plural}: {report['rally_count']}"
+                 f"   total play: {report['total_play_s']}s"
                  f"   longest: {report['longest_rally_s']}s")
     peak = report.get("peak_ball_speed_px_per_s")
     if peak is not None:
-        lines.append(f"  peak ball speed: {peak} px/s")
+        lines.append(f"  peak {domain.subject_noun} speed: {peak} px/s")
     lines.append("")
     for r in report["rallies"]:
         spd = r["ball_speed"]
@@ -221,9 +242,9 @@ def render_summary(report):
         else:
             extra = ", speed n/a"
         tags = ", ".join(r["tags"]) or "untagged"
-        lines.append(f"  {r['id']}: {r['length_s']}s, {r['contacts']} contacts [{tags}]{extra}")
+        lines.append(f"  {r['id']}: {r['length_s']}s, {r['contacts']} {domain.contact_plural} [{tags}]{extra}")
     lines.append("")
-    lines.append("  contact-zone heatmap (court top-left origin):")
+    lines.append(f"  {domain.contact_noun}-zone heatmap ({domain.surface_noun} top-left origin):")
     for row in render_heatmap(report["contact_heatmap"]):
         lines.append(f"    |{row}|")
     return "\n".join(lines)
@@ -236,13 +257,15 @@ def main():
     parser.add_argument("tracking", help="Path to tracking JSON (see detect.py / highlights.py)")
     parser.add_argument("--output-dir", default="coaching")
     parser.add_argument("--meters-per-pixel", type=float, default=None,
-                        help="Court calibration to add metric ball speeds")
+                        help="Surface calibration to add metric subject speeds")
+    parser.add_argument("--domain", default=None,
+                        help="Sport domain (volleyball|martial_arts); default from PIPELINE_DOMAIN")
     args = parser.parse_args()
 
     with open(args.tracking) as fh:
         tracking = json.load(fh)
 
-    report = build_report(tracking, meters_per_pixel=args.meters_per_pixel)
+    report = build_report(tracking, meters_per_pixel=args.meters_per_pixel, domain=args.domain)
     os.makedirs(args.output_dir, exist_ok=True)
     report_path = os.path.join(args.output_dir, "report.json")
     summary_path = os.path.join(args.output_dir, "summary.txt")
