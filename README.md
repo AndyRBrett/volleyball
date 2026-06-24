@@ -113,6 +113,34 @@ raw repo) can fetch to render a session gallery, with no server to run. The same
 > (which also runs off-box behind an HTTP endpoint, so still no local GPU). Works
 > best with a steady camera; a panning phone adds background motion.
 
+## Phone app (PWA)
+
+`docs/` is an installable, offline-capable PWA — a serverless phone interface to
+the whole thing. It has **no backend**: it reads the committed `reports/` via the
+GitHub contents API and starts analyses by firing the `process-footage` workflow
+through the Actions API.
+
+**Deploy it** (once): **Settings → Pages → Source: GitHub Actions**. The
+`pages.yml` workflow then publishes `docs/` on every push to `main`, and the app
+lives at `https://<owner>.github.io/<repo>/` (for this repo,
+`https://andyrbrett.github.io/volleyball/`). Open it on your phone and
+**Add to Home Screen** to install it.
+
+**First run:** open **Settings** in the app and set owner / repo / branch
+(defaults `AndyRBrett` / `volleyball` / `main`) and a GitHub token. Reading
+sessions from a public repo needs no token; the **Analyze** button does. Use a
+fine-grained PAT scoped to this repo with **Actions: Read and write** +
+**Contents: Read**, or a classic token with `repo` + `workflow`. The token is
+stored only in your browser's localStorage.
+
+Three tabs:
+
+- **Sessions** — a gallery from `reports/index.json`; tap a card for its coaching
+  summary (exchanges/strikes, fighter speed, heatmap).
+- **Analyze** — pick a sport, paste a video URL (or a `drop/` path), set fps, and
+  start a run; recent run statuses show inline.
+- **Settings** — repo + token, with a "Test connection" check.
+
 ## End-to-end pipeline + self-test
 
 The pipeline runs in three stages, each a small stdlib-only module:
