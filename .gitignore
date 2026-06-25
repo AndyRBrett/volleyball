@@ -7,13 +7,12 @@ __pycache__/
 drop/*
 !drop/.gitkeep
 
-# Rendered highlight clips are large; the manifest (highlights/manifest.json)
-# is the dashboard artifact and may be committed if desired.
-highlights/*.mp4
-
-# Per-run pipeline artifacts are regenerated from footage and need not be
-# committed. results/selftest.json IS committed (it's the pipeline-verified
-# heartbeat the overseer reads), so it's explicitly un-ignored.
-coaching/
-results/metrics.json
-!results/selftest.json
+# Local-run pipeline artifacts at the REPO ROOT are regenerated and need not be
+# committed. These are anchored with a leading "/" so they only match the root
+# copies -- the per-clip outputs the process-footage workflow publishes under
+# reports/<clip>/ (coaching summary, manifest, rendered clips) ARE committed so
+# the PWA can read them.
+/highlights/*.mp4
+/coaching/
+/results/metrics.json
+!/results/selftest.json
