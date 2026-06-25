@@ -60,11 +60,14 @@ def run_pipeline(
     output_dir="highlights",
     coaching_dir="coaching",
     domain=None,
+    video_path=None,
 ):
     """Run detection -> highlights -> coaching for one clip and return artifacts.
 
     ``domain`` (a Domain, its name, or None for the configured default) selects
-    the detector and coaching vocabulary used across all three stages. Returns a
+    the detector and coaching vocabulary used across all three stages.
+    ``video_path`` is the real video file the highlight ffmpeg commands read from
+    (so the clips can actually be rendered); it defaults to ``source``. Returns a
     dict with the ``tracking`` data, the highlight ``manifest``, the coaching
     ``report``, and a ``metrics`` roll-up (frame counts, segment count). Nothing
     is written to disk here; callers choose what to persist.
@@ -79,7 +82,7 @@ def run_pipeline(
             source = sidecar_source
 
     tracking = detect.run_detection(clip_path, fps=fps, events=events, source=source, domain=domain)
-    manifest = highlights.build_manifest(tracking, output_dir=output_dir, domain=domain)
+    manifest = highlights.build_manifest(tracking, output_dir=output_dir, domain=domain, video_path=video_path)
     report = coaching.build_report(tracking, meters_per_pixel=meters_per_pixel, domain=domain)
 
     metrics = {

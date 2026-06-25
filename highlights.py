@@ -154,7 +154,9 @@ def ffmpeg_trim_cmd(source, start, end, out_path, tags=None, pad_s=DEFAULT_PAD_S
             "box=1:boxcolor=black@0.5:boxborderw=8"
         )
         cmd += ["-vf", drawtext]
-    cmd += [out_path]
+    # Re-encode browser-friendly: yuv420p H.264 + faststart so the rendered clip
+    # plays inline in the PWA's <video> tag (Safari/iOS are picky about this).
+    cmd += ["-pix_fmt", "yuv420p", "-movflags", "+faststart", out_path]
     return cmd
 
 
@@ -166,6 +168,7 @@ def build_manifest(
     pad_s=None,
     tag_enricher=None,
     domain=None,
+    video_path=None,
 ):
     """Build a highlight-clip manifest from tracking data.
 
@@ -173,6 +176,11 @@ def build_manifest(
     ``domain``, or the configured default) supplies the tag vocabulary, the
     segment id prefix, and segmentation defaults; explicit ``max_gap_s`` /
     ``min_segment_s`` / ``pad_s`` override those defaults when given.
+
+    ``video_path`` is the actual local file the ffmpeg trim commands read from
+    (``-i``). It defaults to the tracking record's ``source`` -- but that field
+    is often a display label, so callers that intend to *render* clips pass the
+    real video path here while ``source`` stays human-readable in the manifest.
 
     ``tag_enricher`` is an optional callable (source, start, end, base_tags) ->
     tags, used to fold in VLM-derived tags (e.g. NVIDIA Cosmos Reason). It is
@@ -186,6 +194,7 @@ def build_manifest(
 
     fps = float(tracking.get("fps") or 30.0)
     source = tracking.get("source")
+    ffmpeg_input = video_path if video_path is not None else source
     frames = tracking.get("frames", [])
     events = tracking.get("events", [])
 
@@ -204,7 +213,7 @@ def build_manifest(
             clips_warning = None
         clip_id = f"{domain.segment_noun}_{i:03d}"
         out_path = os.path.join(output_dir, f"{clip_id}.mp4")
-        cmd = ffmpeg_trim_cmd(source, segment["start"], segment["end"], out_path, tags, pad_s)
+        cmd = ffmpeg_trim_cmd(ffmpeg_input, segment["start"], segment["end"], out_path, tags, pad_s)
         entry = {
             "id": clip_id,
             "start": round(segment["start"], 3),
