@@ -94,6 +94,9 @@ MARTIAL_ARTS = Domain(
     detect_threshold=60,      # |frame delta| at/above this counts as motion
     detect_min_pixels=3,
     tags=(
+        # Pose-detected strike attempts (hand vs leg) sort first; the rest are
+        # the technique vocabulary used when explicit events are supplied.
+        "hand_strike", "leg_strike",
         "jab", "cross", "hook", "uppercut", "kick", "knee", "elbow",
         "takedown", "clinch", "sweep", "submission", "block", "dodge",
     ),

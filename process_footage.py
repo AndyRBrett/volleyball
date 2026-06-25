@@ -10,16 +10,20 @@ The catalog is deliberately a flat JSON list of processed clips with relative
 paths to each artifact -- exactly what a static phone PWA can fetch (from GitHub
 Pages or the raw repo) to render a gallery of sessions, with no server to run.
 
-Everything here is CPU-only: ffmpeg's software decoder + the pure-Python
-pipeline. The only moving part that needs ffmpeg is the decode step, isolated in
-decode_video.py.
+For martial arts with overlay on (and the pose deps installed), the analysis is
+pose-driven (fight_analysis): it locks onto the fighters and detects strike
+attempts. Otherwise it uses the dependency-free motion-energy detector.
 """
+import importlib.util
 import json
 import os
 import re
 from datetime import datetime, timezone
 
+import coaching
 import decode_video
+import domains
+import fight_analysis
 import highlights
 import pipeline
 import pose_overlay
@@ -29,6 +33,11 @@ INDEX_NAME = "index.json"
 # Slugs too generic to make a useful session id (e.g. a Drive ".../view" tail);
 # fall back to a timestamp so sessions stay distinct and readable.
 _GENERIC_IDS = {"clip", "view", "uc", "download", "input-video", "input_video", "video"}
+
+
+def _pose_available():
+    """True when the optional pose deps (ultralytics + opencv) are importable."""
+    return all(importlib.util.find_spec(m) for m in ("ultralytics", "cv2"))
 
 
 def _utc_now_iso():
@@ -61,6 +70,47 @@ def update_index(reports_dir, entry):
     return index_path
 
 
+def _run_pose(src_video, title, fps, meters_per_pixel, output_dir, domain, work_dir, cleanup):
+    """Pose-driven analysis path: fighters-only tracking + strike events + overlay.
+
+    Returns ``(result, decoded, trim_is_annotated)`` where ``result`` matches
+    pipeline.run_pipeline's shape and ``trim_is_annotated`` says the trim source
+    is the fighters-only annotated video (so highlight clips come out annotated).
+    """
+    dom = domains.get_domain(domain)
+    tracking, records, norm = fight_analysis.analyze(src_video, fps=fps, source_label=title)
+    cleanup.append(norm)
+
+    trim_video = src_video
+    trim_is_annotated = False
+    annotated = os.path.join(work_dir, "annotated.mp4")
+    try:
+        if fight_analysis.render_overlay(norm, annotated, records, tracking["events"], fps=fps):
+            trim_video, trim_is_annotated = annotated, True
+            cleanup.append(annotated)
+    except Exception as exc:  # noqa: BLE001 -- overlay is best-effort
+        print(f"fighter overlay failed, using raw clips: {exc}")
+
+    manifest = highlights.build_manifest(tracking, output_dir=output_dir, domain=dom, video_path=trim_video)
+    report = coaching.build_report(tracking, meters_per_pixel=meters_per_pixel, domain=dom)
+    metrics = {
+        "generated_at": _utc_now_iso(),
+        "source": tracking.get("source"),
+        "domain": dom.key,
+        "footage_processed": 1,
+        "expected_frames": tracking["frame_count"],
+        "actual_frames": tracking["frame_count"],
+        "frames_processed": tracking["frame_count"],
+        "detected_frames": tracking["detected_frames"],
+        "failed_frames": 0,
+        "segment_count": manifest["segment_count"],
+        "errors": [],
+    }
+    result = {"tracking": tracking, "manifest": manifest, "report": report, "metrics": metrics}
+    decoded = {"width": tracking["width"], "height": tracking["height"]}
+    return result, decoded, trim_is_annotated
+
+
 def process(
     src_video,
     domain,
@@ -90,38 +140,48 @@ def process(
     work_dir = work_dir or clip_dir
     os.makedirs(work_dir, exist_ok=True)
 
-    pgm_path = os.path.join(work_dir, f"{clip_id}.pgm.gz")
-    decoded = decode_video.decode_to_pgm_gz(src_video, pgm_path, fps=fps, width=width)
-
     output_dir = os.path.join(clip_dir, "highlights")
     coaching_dir = os.path.join(clip_dir, "coaching")
     results_dir = os.path.join(clip_dir, "results")
-    # video_path points the highlight ffmpeg commands at the real downloaded file
-    # (tracking["source"] is just a display label).
-    result = pipeline.run_pipeline(
-        pgm_path,
-        fps=fps,
-        source=title,
-        meters_per_pixel=meters_per_pixel,
-        output_dir=output_dir,
-        coaching_dir=coaching_dir,
-        domain=domain,
-        video_path=src_video,
-    )
+    cleanup = []  # temp videos/frames to remove once the report is written
+
+    # Pose path (martial arts + overlay + deps present): lock onto the fighters,
+    # detect strike attempts, and trim clips from a fighters-only annotated video.
+    # Otherwise fall back to the dependency-free motion-energy detector.
+    use_pose = bool(annotate) and domains.get_domain(domain).key == "martial_arts" and _pose_available()
+    if use_pose:
+        result, decoded, trim_is_annotated = _run_pose(
+            src_video, title, fps, meters_per_pixel, output_dir, domain, work_dir, cleanup)
+    else:
+        pgm_path = os.path.join(work_dir, f"{clip_id}.pgm.gz")
+        decoded = decode_video.decode_to_pgm_gz(src_video, pgm_path, fps=fps, width=width)
+        cleanup.append(pgm_path)
+        # video_path points the highlight ffmpeg commands at the real file
+        # (tracking["source"] is just a display label).
+        result = pipeline.run_pipeline(
+            pgm_path, fps=fps, source=title, meters_per_pixel=meters_per_pixel,
+            output_dir=output_dir, coaching_dir=coaching_dir, domain=domain,
+            video_path=src_video,
+        )
+        trim_is_annotated = False
+
     pipeline._write_artifacts(result, output_dir, coaching_dir, results_dir)
 
-    # Render the tagged highlight clips (ffmpeg). Best-effort: missing ffmpeg or a
-    # single bad clip is skipped, never fatal. Record which actually rendered and
-    # rewrite the manifest so the PWA only offers playable clips.
+    # Render the tagged highlight clips (ffmpeg trims). Best-effort: missing ffmpeg
+    # or a single bad clip is skipped, never fatal. Record which actually rendered.
     manifest = result["manifest"]
     render_status = {r["id"]: r.get("status") for r in highlights.render_clips(manifest)}
     for clip in manifest["clips"]:
         clip["rendered"] = render_status.get(clip["id"]) == "rendered"
         clip.pop("ffmpeg_cmd", None)  # internal; not needed in the published manifest
 
-    # Optional CV overlay: draw boxes + ids + skeletons onto each rendered clip
-    # (best-effort; a missing model/dep or a bad clip is logged, never fatal).
-    if annotate:
+    if trim_is_annotated:
+        # Clips are trims of the fighters-only annotated video -> already drawn.
+        for clip in manifest["clips"]:
+            clip["annotated"] = bool(clip.get("rendered"))
+    elif annotate:
+        # Fallback overlay (volleyball, or no pose deps): annotate each clip,
+        # best-effort -- a missing model/dep or a bad clip is logged, never fatal.
         for clip in manifest["clips"]:
             if not clip.get("rendered"):
                 continue
@@ -134,11 +194,13 @@ def process(
 
     highlights.write_manifest(manifest, os.path.join(output_dir, "manifest.json"))
 
-    # Decoded frames are an intermediate, not an artifact worth committing.
-    try:
-        os.remove(pgm_path)
-    except OSError:
-        pass
+    # Intermediates (decoded frames, normalized/annotated working videos) are not
+    # artifacts worth committing.
+    for path in cleanup:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
     metrics = result["metrics"]
     clips = [
