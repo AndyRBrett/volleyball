@@ -31,6 +31,13 @@ on:
         description: "Session name (optional; shown in the app)"
         type: string
         required: false
+      annotate:
+        description: "Draw boxes + skeletons on clips (YOLOv8-pose; slower)"
+        type: choice
+        default: "true"
+        options:
+          - "true"
+          - "false"
 
 permissions:
   contents: write
@@ -53,6 +60,12 @@ jobs:
           sudo apt-get install -y ffmpeg
           ffmpeg -version | head -1
 
+      # The CV overlay (boxes + skeletons) needs a real model; install it only
+      # when annotate is on. CPU-only torch -- no GPU, just slower.
+      - name: Install pose model (annotate)
+        if: ${{ inputs.annotate != 'false' }}
+        run: pip install ultralytics opencv-python-headless
+
       - name: Decode + analyze footage
         env:
           CLIP_PATH: ${{ inputs.clip_path }}
@@ -60,14 +73,16 @@ jobs:
           DOMAIN: ${{ inputs.domain }}
           FPS: ${{ inputs.fps }}
           NAME: ${{ inputs.name }}
+          ANNOTATE: ${{ inputs.annotate }}
         run: |
           set -euo pipefail
-          NAME_ARGS=()
-          if [ -n "${NAME}" ]; then NAME_ARGS=(--name "${NAME}"); fi
+          EXTRA=()
+          if [ -n "${NAME}" ]; then EXTRA+=(--name "${NAME}"); fi
+          if [ "${ANNOTATE}" != "false" ]; then EXTRA+=(--annotate); fi
           if [ -n "${CLIP_URL}" ]; then
-            python process_footage.py --url "${CLIP_URL}" --domain "${DOMAIN}" --fps "${FPS}" "${NAME_ARGS[@]}"
+            python process_footage.py --url "${CLIP_URL}" --domain "${DOMAIN}" --fps "${FPS}" "${EXTRA[@]}"
           elif [ -n "${CLIP_PATH}" ]; then
-            python process_footage.py "${CLIP_PATH}" --domain "${DOMAIN}" --fps "${FPS}" "${NAME_ARGS[@]}"
+            python process_footage.py "${CLIP_PATH}" --domain "${DOMAIN}" --fps "${FPS}" "${EXTRA[@]}"
           else
             echo "Provide clip_path or clip_url" >&2
             exit 1

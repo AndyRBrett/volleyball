@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 import decode_video
 import highlights
 import pipeline
+import pose_overlay
 
 DEFAULT_REPORTS_DIR = "reports"
 INDEX_NAME = "index.json"
@@ -69,6 +70,7 @@ def process(
     meters_per_pixel=None,
     source_label=None,
     name=None,
+    annotate=False,
     work_dir=None,
 ):
     """Decode + run the pipeline for one video, publishing under reports/<id>/.
@@ -116,6 +118,20 @@ def process(
     for clip in manifest["clips"]:
         clip["rendered"] = render_status.get(clip["id"]) == "rendered"
         clip.pop("ffmpeg_cmd", None)  # internal; not needed in the published manifest
+
+    # Optional CV overlay: draw boxes + ids + skeletons onto each rendered clip
+    # (best-effort; a missing model/dep or a bad clip is logged, never fatal).
+    if annotate:
+        for clip in manifest["clips"]:
+            if not clip.get("rendered"):
+                continue
+            try:
+                pose_overlay.annotate(clip["output"])
+                clip["annotated"] = True
+            except Exception as exc:  # noqa: BLE001 -- overlay is best-effort
+                clip["annotated"] = False
+                print(f"pose overlay skipped for {clip['id']}: {exc}")
+
     highlights.write_manifest(manifest, os.path.join(output_dir, "manifest.json"))
 
     # Decoded frames are an intermediate, not an artifact worth committing.
@@ -133,6 +149,7 @@ def process(
             "duration": c["duration"],
             "tags": c["tags"],
             "video": c["output"] if c.get("rendered") else None,
+            "annotated": bool(c.get("annotated")),
         }
         for c in manifest["clips"]
     ]
@@ -170,6 +187,8 @@ def main():
     parser.add_argument("--width", type=int, default=decode_video.DEFAULT_WIDTH)
     parser.add_argument("--meters-per-pixel", type=float, default=None)
     parser.add_argument("--name", default=None, help="Session name (id/title); else derived from the file")
+    parser.add_argument("--annotate", action="store_true",
+                        help="Draw boxes + ids + skeletons on clips (needs ultralytics+opencv)")
     args = parser.parse_args()
 
     src = decode_video.resolve_source(clip_path=args.src, clip_url=args.url)
@@ -186,6 +205,7 @@ def main():
         meters_per_pixel=args.meters_per_pixel,
         source_label=label,
         name=args.name,
+        annotate=args.annotate,
     )
     print(f"Processed {entry['source']} [{entry['domain']}]: "
           f"{entry['frames_processed']} frames -> {entry['segment_count']} segments. "
