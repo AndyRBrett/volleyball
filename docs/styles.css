@@ -94,6 +94,16 @@ dialog#clipDialog {
 dialog::backdrop { background: rgba(0,0,0,.6); }
 .dialog-head { display: flex; justify-content: space-between; align-items: center;
   padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.feedback { padding: 0 14px; }
+.feedback:empty { padding: 0; }
+.feedback-head { margin: 14px 0 6px; font-size: 12px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.feedback-body { background: var(--card, #1b1b1f); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 14px; font-size: 14px; line-height: 1.5; }
+.feedback-body p { margin: 8px 0; }
+.feedback-body ul { margin: 6px 0; padding-left: 20px; }
+.feedback-body li { margin: 3px 0; }
+.feedback-body strong { color: var(--text, #fff); }
 .videos { display: grid; gap: 14px; padding: 14px 14px 0; }
 .videos:empty { padding: 0; }
 .clip { display: grid; gap: 6px; }

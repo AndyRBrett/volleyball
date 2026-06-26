@@ -1,6 +1,6 @@
 // coachvision service worker: cache the app shell so it installs and opens
 // offline. GitHub API calls are always network (never cached) so data is live.
-const CACHE = "coachvision-v2";
+const CACHE = "coachvision-v3";
 const SHELL = [
   "./",
   "./index.html",

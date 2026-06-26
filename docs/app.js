@@ -111,6 +111,7 @@ function card(clip) {
   stats.innerHTML =
     `<span><b>${clip.segment_count ?? "–"}</b> ${seg}</span>` +
     (playable ? `<span>▶ <b>${playable}</b> clip${playable === 1 ? "" : "s"}</span>` : "") +
+    (clip.feedback ? `<span>💬 coach</span>` : "") +
     `<span><b>${clip.detected_frames ?? "–"}</b>/${clip.frames_processed ?? "–"} frames</span>`;
   b.appendChild(stats);
   if (clip.processed_at) b.appendChild(el("div", "when", fmtDate(clip.processed_at)));
@@ -127,12 +128,55 @@ function clearVideos() {
   $("#dlgVideos").innerHTML = "";
 }
 
+// Minimal, injection-safe Markdown -> DOM for the coaching feedback. Handles the
+// shapes coach_feedback emits: **bold** section headers, "- " bullets, blank-line
+// paragraphs. Everything is set via textContent, so no HTML is ever interpreted.
+function renderMarkdown(md, into) {
+  into.innerHTML = "";
+  let list = null;
+  const inlineBold = (line, p) => {
+    // Split on **...** and render the odd segments as <strong>.
+    line.split(/\*\*(.+?)\*\*/g).forEach((seg, i) => {
+      if (!seg) return;
+      p.appendChild(i % 2 ? el("strong", null, seg) : document.createTextNode(seg));
+    });
+  };
+  for (const raw of md.split("\n")) {
+    const line = raw.trimEnd();
+    if (/^\s*[-*]\s+/.test(line)) {
+      if (!list) { list = el("ul"); into.appendChild(list); }
+      const li = el("li");
+      inlineBold(line.replace(/^\s*[-*]\s+/, ""), li);
+      list.appendChild(li);
+      continue;
+    }
+    list = null;
+    if (!line) continue;
+    const p = el("p");
+    inlineBold(line, p);
+    into.appendChild(p);
+  }
+}
+
 async function openClip(clip) {
   $("#dlgTitle").textContent = clip.title || clip.id;
   clearVideos();
+  const fb = $("#dlgFeedback");
+  fb.innerHTML = "";
   const body = $("#dlgBody");
   body.textContent = "Loading…";
   $("#clipDialog").showModal();
+
+  // Claude coaching feedback (if this session has any). Rendered above the clips.
+  try {
+    const feedback = await getContent(`reports/${clip.id}/coaching/feedback.md`);
+    if (feedback) {
+      fb.appendChild(el("div", "feedback-head", "Coaching feedback"));
+      const md = el("div", "feedback-body");
+      renderMarkdown(feedback, md);
+      fb.appendChild(md);
+    }
+  } catch { /* feedback is optional; ignore */ }
 
   // Coaching summary text.
   try {

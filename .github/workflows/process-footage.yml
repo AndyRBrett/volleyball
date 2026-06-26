@@ -61,10 +61,12 @@ jobs:
           ffmpeg -version | head -1
 
       # The CV overlay (boxes + skeletons) needs a real model; install it only
-      # when annotate is on. CPU-only torch -- no GPU, just slower.
+      # when annotate is on. CPU-only torch -- no GPU, just slower. The anthropic
+      # SDK is pulled in here too so the optional Claude coaching feedback can run
+      # (it no-ops without the ANTHROPIC_API_KEY secret).
       - name: Install pose model (annotate)
         if: ${{ inputs.annotate != 'false' }}
-        run: pip install ultralytics opencv-python-headless
+        run: pip install ultralytics opencv-python-headless anthropic
 
       - name: Decode + analyze footage
         env:
@@ -74,6 +76,9 @@ jobs:
           FPS: ${{ inputs.fps }}
           NAME: ${{ inputs.name }}
           ANNOTATE: ${{ inputs.annotate }}
+          # Optional: set this repo secret to get Claude coaching feedback per
+          # session. Unset -> the feedback step is skipped, run still succeeds.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -euo pipefail
           EXTRA=()
