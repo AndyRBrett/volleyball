@@ -89,6 +89,8 @@ GitHub mobile app and the REST API can fire the same `workflow_dispatch`):
 - `clip_path` — a video already committed under `drop/` (e.g. `drop/spar.mp4`), **or**
 - `clip_url` — a link the runner downloads (handy for a phone upload / cloud link).
 - `fps` — sample rate (default `10`).
+- `annotate` — `true` (default) draws fighter boxes + skeletons and detects
+  strike attempts (YOLOv8-pose, CPU); `false` skips it for a faster run.
 
 It commits browsable outputs back to the repo:
 
@@ -97,8 +99,18 @@ reports/
   index.json                     # catalog of every processed clip (PWA-friendly)
   <clip>/coaching/report.json    # machine-readable coaching report
   <clip>/coaching/summary.txt    # the coach-facing summary
+  <clip>/coaching/feedback.md    # Claude coaching feedback (only if a key is set)
   <clip>/highlights/manifest.json
 ```
+
+> **Optional Claude coaching feedback.** For martial-arts runs with `annotate`
+> on, the pipeline can hand the computed stats (strike attempts, hand/leg split,
+> fighter presence, exchanges) and a few annotated stills to **Claude** (vision)
+> and save real, actionable coaching notes to `<clip>/coaching/feedback.md` — the
+> PWA shows them at the top of the clip dialog. This is **cost-gated and
+> optional**: add an `ANTHROPIC_API_KEY` repo secret
+> (**Settings → Secrets and variables → Actions**) to enable it. With no secret
+> the step is skipped and the run still succeeds.
 
 `reports/index.json` is a flat list of clips with relative paths to each
 artifact — exactly what a **static phone PWA** (served from GitHub Pages or the
